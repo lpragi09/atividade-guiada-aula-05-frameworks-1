@@ -3,6 +3,8 @@
 GeoBusca CEP: aplicação em React + Vite que busca um endereço pelo CEP, mostra a
 localização em um mapa e permite salvar endereços favoritos.
 
+Deploy: https://atividade-guiada-aula-05-frameworks.vercel.app
+
 ## Como funciona
 
 1. O usuário digita um CEP e o `CepForm` chama a API do ViaCEP para buscar o endereço.
