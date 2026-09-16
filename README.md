@@ -32,8 +32,17 @@ Depois de terminar o passo a passo da aula, fui além em alguns pontos:
   localização do navegador, coloca o usuário no mapa (ponto verde com raio de precisão)
   e desenha o trajeto até o endereço usando o **OSRM** (servidores públicos da FOSSGIS,
   sem chave), com distância, tempo estimado e troca entre **carro, bike e a pé**.
-  Se a permissão de localização já foi dada, o usuário aparece no mapa ao abrir a página.
-  Enquanto não há rota, mostra a distância em linha reta (Haversine em `utils/geo.js`).
+  Ao abrir a página, o mapa convida a ativar a localização; se a permissão já foi dada,
+  o usuário aparece no mapa desde o início. Enquanto não há rota, o card mostra a
+  distância em linha reta (Haversine em `utils/geo.js`).
+- **Pedágios e radares na rota**: depois de traçar a rota, uma consulta ao **Overpass**
+  (API de busca do OpenStreetMap) procura praças de pedágio (`barrier=toll_booth`,
+  `highway=toll_gantry`) e radares (`highway=speed_camera`) a até 40 m do trajeto.
+  Eles aparecem como marcadores no mapa e como resumo no painel: quantidade de pedágios,
+  **valor total para carro** (tag `charge` do OSM, quando cadastrada) e quantidade de
+  radares com o limite de velocidade no popup. Se algum pedágio não tem valor no OSM, o
+  total aparece como "a partir de". A rota é simplificada antes da consulta e o resultado
+  fica em cache; se um servidor recusar (limite por IP), tenta os espelhos.
 - **Feedback**: skeleton durante o carregamento, toasts (`Snackbar`) para salvar/copiar
   e **desfazer exclusão**.
 - Hook próprio `useLocalStorage` para tirar a repetição de `getItem`/`setItem` do `App`.
@@ -60,6 +69,7 @@ src/
     viaCep.js           busca o endereço pelo CEP
     opencage.js         converte o endereço em latitude/longitude
     osrm.js             calcula a rota (carro, bike, a pé) até o endereço
+    overpass.js         pedágios (com valor) e radares ao longo da rota
   components/
     Header.jsx          logo, contadores e botão de tema
     CepForm.jsx         campo de CEP com máscara, histórico e atalho
@@ -83,6 +93,8 @@ src/
   `item xs={..} sm={..}`; o mesmo vale para `slotProps` no lugar de `InputProps`.
 - O ícone padrão do marcador do Leaflet não carrega com o Vite, por isso o marcador é
   um `divIcon` em HTML/CSS estilizado no `GlobalStyles`.
+- Os valores de pedágio vêm do OpenStreetMap e dependem de alguém ter cadastrado a tag
+  `charge`; podem estar desatualizados. Servem como estimativa, não como tabela oficial.
 - O `react-transition-group` foi adicionado como dependência direta porque o
   `FavoritesList` importa o `TransitionGroup` dele.
 
