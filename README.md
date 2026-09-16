@@ -28,8 +28,12 @@ Depois de terminar o passo a passo da aula, fui além em alguns pontos:
   CSS, sem precisar de outro provedor de mapas.
 - **Máscara de CEP** (`00000-000`), histórico das últimas buscas, atalhos de teclado
   (`/` foca a busca, `Esc` fecha o endereço, `Enter`/`Esc` na edição do apelido).
-- **Ações no endereço**: copiar, abrir no Google Maps e calcular a **distância até
-  mim** usando a geolocalização do navegador (fórmula de Haversine em `utils/geo.js`).
+- **Ações no endereço**: copiar, abrir no Google Maps e **"Rota até aqui"**: pede a
+  localização do navegador, coloca o usuário no mapa (ponto verde com raio de precisão)
+  e desenha o trajeto até o endereço usando o **OSRM** (servidores públicos da FOSSGIS,
+  sem chave), com distância, tempo estimado e troca entre **carro, bike e a pé**.
+  Se a permissão de localização já foi dada, o usuário aparece no mapa ao abrir a página.
+  Enquanto não há rota, mostra a distância em linha reta (Haversine em `utils/geo.js`).
 - **Feedback**: skeleton durante o carregamento, toasts (`Snackbar`) para salvar/copiar
   e **desfazer exclusão**.
 - Hook próprio `useLocalStorage` para tirar a repetição de `getItem`/`setItem` do `App`.
@@ -55,14 +59,16 @@ src/
   api/
     viaCep.js           busca o endereço pelo CEP
     opencage.js         converte o endereço em latitude/longitude
+    osrm.js             calcula a rota (carro, bike, a pé) até o endereço
   components/
     Header.jsx          logo, contadores e botão de tema
     CepForm.jsx         campo de CEP com máscara, histórico e atalho
     AddressDisplay.jsx  card do endereço com copiar, Google Maps e distância
-    MapView.jsx         mapa com marcadores dos favoritos e ponto ativo
+    MapView.jsx         mapa com favoritos, ponto ativo, usuário e rota
     FavoritesList.jsx   lista de lugares com filtro, edição e exclusão
   hooks/
     useLocalStorage.js  useState que persiste no localStorage
+    useGeolocation.js   posição do usuário (automática se a permissão já existe)
   utils/
     geo.js              máscara de CEP, Haversine, cores por UF, links
   GlobalStyles.js       fundo animado, marcador do mapa e estilos do Leaflet
