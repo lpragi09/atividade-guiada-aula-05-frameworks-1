@@ -25,3 +25,6 @@ dist-ssr
 
 # Variaveis de ambiente (a chave da API fica so na maquina local)
 .env
+
+# Vercel
+.vercel
