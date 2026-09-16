@@ -10,6 +10,9 @@ import markerShadow from "leaflet/dist/images/marker-shadow.png";
 
 // O Vite nao resolve o caminho padrao das imagens do Leaflet e o marcador
 // aparecia quebrado. Aqui aponto o icone padrao para as imagens importadas.
+// O _getIconUrl precisa ser removido, senao o Leaflet junta o caminho do CSS
+// com a URL importada e a imagem nao carrega.
+delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: markerIcon2x,
   iconUrl: markerIcon,

@@ -8,6 +8,12 @@ const opencageApi = axios.create({
 });
 
 export const getCoordinatesByAddress = async (address) => {
+  if (!API_KEY) {
+    throw new Error(
+      'Chave da API do OpenCage não configurada. Crie o arquivo .env a partir do .env.example.',
+    );
+  }
+
   const query = `${address.logradouro}, ${address.localidade}, ${address.uf}, Brasil`;
   const response = await opencageApi.get('', {
     params: { q: query, key: API_KEY, limit: 1, language: 'pt-BR' },
