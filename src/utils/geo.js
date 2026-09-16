@@ -41,6 +41,20 @@ export const formatDistance = (km) => {
   return `${km.toLocaleString("pt-BR", { maximumFractionDigits: km < 10 ? 1 : 0 })} km`;
 };
 
+// Duracao em segundos -> "1 h 05 min" / "12 min".
+export const formatDuration = (seconds) => {
+  if (seconds === null || seconds === undefined) return "";
+  const totalMin = Math.max(1, Math.round(seconds / 60));
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m} min`;
+  return `${h} h ${String(m).padStart(2, "0")} min`;
+};
+
+// Link de rota no Google Maps a partir da posicao do usuario.
+export const googleMapsRouteUrl = (from, to) =>
+  `https://www.google.com/maps/dir/?api=1&origin=${from.lat},${from.lng}&destination=${to.lat},${to.lng}`;
+
 export const googleMapsUrl = (coordinates, address) => {
   if (coordinates) {
     return `https://www.google.com/maps/search/?api=1&query=${coordinates.lat},${coordinates.lng}`;

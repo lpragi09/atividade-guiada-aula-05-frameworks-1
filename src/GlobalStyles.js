@@ -101,6 +101,27 @@ const GlobalStyles = createGlobalStyle`
     height: 18px;
   }
 
+  /* Marcador da posicao do usuario: ponto azul com anel pulsante */
+  .geo-user {
+    position: relative;
+    display: block;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #2f9e44;
+    border: 3px solid #fff;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  }
+
+  .geo-user::after {
+    content: "";
+    position: absolute;
+    inset: -12px;
+    border-radius: 50%;
+    border: 3px solid #2f9e44;
+    animation: ${pulse} 2s ease-out infinite;
+  }
+
   /* Modo escuro do mapa: inverte os tiles do OSM e corrige o tom */
   .tiles-dark {
     filter: invert(1) hue-rotate(200deg) brightness(0.9) contrast(0.9) saturate(0.5);
