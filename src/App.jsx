@@ -1,64 +1,127 @@
 // src/App.jsx
-import React, { useState, useEffect } from "react";
-import styled, {
-  ThemeProvider as StyledThemeProvider,
-} from "styled-components";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import styled, { ThemeProvider as StyledThemeProvider } from "styled-components";
 import {
   Container,
   Typography,
-  CircularProgress,
   Alert,
-  Divider,
   ThemeProvider as MuiThemeProvider,
   CssBaseline,
   Box,
+  Grid,
+  Paper,
+  Snackbar,
+  Button,
+  Skeleton,
+  Stack,
+  Link,
 } from "@mui/material";
-import { Map } from "@mui/icons-material";
 
-import theme from "./theme";
+import { getTheme } from "./theme";
+import GlobalStyles from "./GlobalStyles";
+import useLocalStorage from "./hooks/useLocalStorage";
 import { getAddressByCep } from "./api/viaCep";
 import { getCoordinatesByAddress } from "./api/opencage";
+import Header from "./components/Header";
 import CepForm from "./components/CepForm";
 import AddressDisplay from "./components/AddressDisplay";
 import MapView from "./components/MapView";
 import FavoritesList from "./components/FavoritesList";
 
 const AppWrapper = styled.div`
-  background-color: ${({ theme }) => theme.palette.background.default};
   min-height: 100vh;
-  padding: 3rem 1rem;
+  padding: 2.5rem 0 3rem;
+
+  @media (max-width: 600px) {
+    padding: 1.5rem 0 2rem;
+  }
 `;
 
-const MainContent = styled(Box)`
-  background: ${({ theme }) => theme.palette.background.paper};
-  padding: 2.5rem;
-  border-radius: ${({ theme }) => theme.shape.borderRadius}px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+// Painel "de vidro": fundo semitransparente com blur por cima dos blobs do fundo.
+const Panel = styled(Paper)`
+  padding: 1.75rem;
+  border-radius: ${({ theme }) => theme.shape.borderRadius * 1.5}px;
+  background: ${({ theme }) =>
+    theme.palette.mode === "dark" ? "rgba(18, 26, 51, 0.78)" : "rgba(255, 255, 255, 0.78)"};
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 20px 60px
+    ${({ theme }) => (theme.palette.mode === "dark" ? "rgba(0, 0, 0, 0.45)" : "rgba(17, 24, 39, 0.08)")};
+
+  @media (max-width: 600px) {
+    padding: 1.25rem;
+  }
 `;
+
+// A coluna do mapa acompanha a rolagem no desktop.
+const StickyColumn = styled.div`
+  position: sticky;
+  top: 1.5rem;
+  height: calc(100vh - 3rem);
+  min-height: 420px;
+
+  @media (max-width: 900px) {
+    position: static;
+    height: 460px;
+  }
+`;
+
+const MAX_RECENT = 5;
+
+const prefersDark = () =>
+  window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 
 function App() {
+  const [mode, setMode] = useLocalStorage("geobusca:mode", prefersDark);
+  const theme = useMemo(() => getTheme(mode), [mode]);
+
   const [address, setAddress] = useState(null);
   const [coordinates, setCoordinates] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [isFavoriteView, setIsFavoriteView] = useState(false);
+  const [selectedId, setSelectedId] = useState(null);
 
-  const [favorites, setFavorites] = useState(() => {
-    try {
-      const savedFavorites = localStorage.getItem("favorites");
-      return savedFavorites ? JSON.parse(savedFavorites) : [];
-    } catch (error) {
-      console.error("Failed to parse favorites from localStorage", error);
-      return [];
-    }
-  });
+  const [favorites, setFavorites] = useLocalStorage("favorites", []);
+  const [recent, setRecent] = useLocalStorage("geobusca:recent", []);
 
+  const [toast, setToast] = useState(null); // { message, severity, undo }
+
+  const notify = useCallback((message, severity = "info", undo = null) => {
+    setToast({ message, severity, undo, key: Date.now() });
+  }, []);
+
+  const citiesCount = useMemo(
+    () => new Set(favorites.map((fav) => `${fav.localidade}/${fav.uf}`)).size,
+    [favorites],
+  );
+
+  const handleCloseDisplay = () => {
+    setAddress(null);
+    setCoordinates(null);
+    setIsFavoriteView(false);
+    setSelectedId(null);
+  };
+
+  // No celular o mapa fica abaixo da lista, entao rola ate ele quando um ponto e exibido.
   useEffect(() => {
-    localStorage.setItem("favorites", JSON.stringify(favorites));
-  }, [favorites]);
+    if (coordinates && window.innerWidth < 900) {
+      document.getElementById("mapa")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [coordinates]);
+
+  // Esc fecha o card do endereco.
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (e.key === "Escape" && address) handleCloseDisplay();
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [address]);
 
   const handleSearch = async (cep) => {
     setIsFavoriteView(false);
+    setSelectedId(null);
     setLoading(true);
     setError("");
     setAddress(null);
@@ -67,6 +130,7 @@ function App() {
     try {
       const addressData = await getAddressByCep(cep);
       setAddress(addressData);
+      setRecent((prev) => [cep, ...prev.filter((item) => item !== cep)].slice(0, MAX_RECENT));
 
       const coords = await getCoordinatesByAddress(addressData);
       setCoordinates(coords);
@@ -78,112 +142,196 @@ function App() {
   };
 
   const handleAddFavorite = (currentAddress, currentCoordinates) => {
-    const isAlreadyFavorite = favorites.some(
-      (fav) => fav.cep === currentAddress.cep,
-    );
+    const isAlreadyFavorite = favorites.some((fav) => fav.cep === currentAddress.cep);
     if (isAlreadyFavorite) {
-      setError("Este endereço já está na sua lista de favoritos.");
+      notify("Este endereço já está nos seus lugares.", "warning");
       return;
     }
 
     const newFavorite = {
       id: Date.now(),
-      apelido: "Novo Endereço",
+      apelido: currentAddress.logradouro || currentAddress.localidade || "Novo lugar",
       ...currentAddress,
       coordinates: currentCoordinates,
     };
-    setFavorites((prevFavorites) => [newFavorite, ...prevFavorites]);
+    setFavorites((prev) => [newFavorite, ...prev]);
     handleCloseDisplay();
     setError("");
+    notify("Lugar salvo. Clique no lápis para dar um apelido.", "success");
   };
 
   const handleUpdateFavorite = (id, newApelido) => {
-    setFavorites((prevFavorites) =>
-      prevFavorites.map((fav) =>
-        fav.id === id ? { ...fav, apelido: newApelido } : fav,
-      ),
+    setFavorites((prev) =>
+      prev.map((fav) => (fav.id === id ? { ...fav, apelido: newApelido } : fav)),
     );
+    if (selectedId === id && address) {
+      setAddress((prev) => ({ ...prev, apelido: newApelido }));
+    }
   };
 
+  // Remove com opcao de desfazer no toast.
   const handleDeleteFavorite = (id) => {
-    setFavorites((prevFavorites) =>
-      prevFavorites.filter((fav) => fav.id !== id),
-    );
+    const index = favorites.findIndex((fav) => fav.id === id);
+    if (index === -1) return;
+    const removed = favorites[index];
+
+    setFavorites((prev) => prev.filter((fav) => fav.id !== id));
+    if (selectedId === id) handleCloseDisplay();
+
+    notify(`"${removed.apelido}" removido.`, "info", () => {
+      setFavorites((prev) => {
+        const next = [...prev];
+        next.splice(Math.min(index, next.length), 0, removed);
+        return next;
+      });
+    });
   };
 
   const handleSelectFavorite = (favorite) => {
+    if (!favorite) {
+      handleCloseDisplay();
+      return;
+    }
+    setError("");
     setAddress(favorite);
     setIsFavoriteView(true);
+    setSelectedId(favorite.id);
     setCoordinates(favorite.coordinates || null);
   };
 
-  const handleCloseDisplay = () => {
-    setAddress(null);
-    setCoordinates(null);
-    setIsFavoriteView(false);
-  };
+  const toggleMode = () => setMode((prev) => (prev === "dark" ? "light" : "dark"));
 
   return (
     <MuiThemeProvider theme={theme}>
       <StyledThemeProvider theme={theme}>
         <CssBaseline />
+        <GlobalStyles />
         <AppWrapper>
-          <Container maxWidth="md">
-            <MainContent>
-              <Box
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  mb: 2,
-                }}
-              >
-                <Map color="primary" sx={{ fontSize: 48, mr: 1.5 }} />
-                <Typography variant="h4" component="h1">
-                  GeoBusca CEP
-                </Typography>
-              </Box>
+          <Container maxWidth="xl">
+            <Header
+              mode={mode}
+              onToggleMode={toggleMode}
+              favoritesCount={favorites.length}
+              citiesCount={citiesCount}
+            />
 
-              <CepForm onSearch={handleSearch} loading={loading} />
+            <Grid container spacing={3}>
+              <Grid size={{ xs: 12, md: 5, lg: 5 }}>
+                <Panel>
+                  <CepForm
+                    onSearch={handleSearch}
+                    loading={loading}
+                    recent={recent}
+                    onClearRecent={() => setRecent([])}
+                  />
 
-              {loading && (
-                <Box sx={{ display: "flex", justifyContent: "center", my: 3 }}>
-                  <CircularProgress />
-                </Box>
-              )}
+                  {loading && (
+                    <Box sx={{ mt: 3 }}>
+                      <Skeleton variant="rounded" height={28} width="40%" sx={{ mb: 1 }} />
+                      <Skeleton variant="rounded" height={36} width="80%" sx={{ mb: 2 }} />
+                      <Skeleton variant="rounded" height={72} />
+                    </Box>
+                  )}
 
-              {error && (
-                <Alert
-                  severity="error"
-                  sx={{ mt: 2 }}
-                  onClose={() => setError("")}
-                >
-                  {error}
-                </Alert>
-              )}
+                  {error && (
+                    <Alert severity="error" sx={{ mt: 2 }} onClose={() => setError("")}>
+                      {error}
+                    </Alert>
+                  )}
 
-              {address && (
-                <AddressDisplay
-                  address={address}
-                  isFavoriteView={isFavoriteView}
-                  onSave={() => handleAddFavorite(address, coordinates)}
-                  onClose={handleCloseDisplay}
-                />
-              )}
+                  {address && (
+                    <AddressDisplay
+                      address={address}
+                      coordinates={coordinates}
+                      isFavoriteView={isFavoriteView}
+                      onSave={() => handleAddFavorite(address, coordinates)}
+                      onClose={handleCloseDisplay}
+                      onNotify={notify}
+                    />
+                  )}
 
-              {coordinates && <MapView coordinates={coordinates} />}
+                  <FavoritesList
+                    favorites={favorites}
+                    selectedId={selectedId}
+                    onUpdate={handleUpdateFavorite}
+                    onDelete={handleDeleteFavorite}
+                    onSelect={handleSelectFavorite}
+                  />
+                </Panel>
+              </Grid>
 
-              <Divider sx={{ my: 4 }} />
+              <Grid size={{ xs: 12, md: 7, lg: 7 }}>
+                <StickyColumn id="mapa">
+                  <MapView
+                    coordinates={coordinates}
+                    address={address}
+                    favorites={favorites}
+                    onSelectFavorite={handleSelectFavorite}
+                    mode={mode}
+                  />
+                </StickyColumn>
+              </Grid>
+            </Grid>
 
-              <FavoritesList
-                favorites={favorites}
-                onUpdate={handleUpdateFavorite}
-                onDelete={handleDeleteFavorite}
-                onSelect={handleSelectFavorite}
-              />
-            </MainContent>
+            <Stack
+              component="footer"
+              direction={{ xs: "column", sm: "row" }}
+              spacing={1}
+              sx={{
+                mt: 4,
+                color: "text.secondary",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <Typography variant="caption">
+                Dados: <Link href="https://viacep.com.br" target="_blank" rel="noopener">ViaCEP</Link>
+                {" · "}
+                <Link href="https://opencagedata.com" target="_blank" rel="noopener">OpenCage</Link>
+                {" · "}
+                <Link href="https://www.openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</Link>
+                {" · "}
+                <Link href="https://carto.com" target="_blank" rel="noopener">CARTO</Link>
+              </Typography>
+              <Typography variant="caption">
+                Atalhos: <kbd>/</kbd> foca a busca · <kbd>Esc</kbd> fecha o endereço
+              </Typography>
+            </Stack>
           </Container>
         </AppWrapper>
+
+        <Snackbar
+          key={toast?.key}
+          open={Boolean(toast)}
+          autoHideDuration={toast?.undo ? 6000 : 3500}
+          onClose={(_, reason) => reason !== "clickaway" && setToast(null)}
+          anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+        >
+          {toast && (
+            <Alert
+              severity={toast.severity}
+              variant="filled"
+              onClose={() => setToast(null)}
+              action={
+                toast.undo ? (
+                  <Button
+                    color="inherit"
+                    size="small"
+                    onClick={() => {
+                      toast.undo();
+                      setToast(null);
+                    }}
+                  >
+                    Desfazer
+                  </Button>
+                ) : undefined
+              }
+              sx={{ minWidth: 280 }}
+            >
+              {toast.message}
+            </Alert>
+          )}
+        </Snackbar>
       </StyledThemeProvider>
     </MuiThemeProvider>
   );
