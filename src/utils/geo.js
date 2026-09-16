@@ -41,6 +41,9 @@ export const formatDistance = (km) => {
   return `${km.toLocaleString("pt-BR", { maximumFractionDigits: km < 10 ? 1 : 0 })} km`;
 };
 
+export const formatBRL = (value) =>
+  value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
 // Duracao em segundos -> "1 h 05 min" / "12 min".
 export const formatDuration = (seconds) => {
   if (seconds === null || seconds === undefined) return "";

@@ -122,6 +122,33 @@ const GlobalStyles = createGlobalStyle`
     animation: ${pulse} 2s ease-out infinite;
   }
 
+  /* Badges de pedagio e radar na rota */
+  .geo-badge {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    border: 2px solid #fff;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    color: #fff;
+  }
+
+  .geo-badge svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+  }
+
+  .geo-badge.is-toll {
+    background: #f59f00;
+  }
+
+  .geo-badge.is-camera {
+    background: #e03131;
+    border-radius: 50%;
+  }
+
   /* Modo escuro do mapa: inverte os tiles do OSM e corrige o tom */
   .tiles-dark {
     filter: invert(1) hue-rotate(200deg) brightness(0.9) contrast(0.9) saturate(0.5);
