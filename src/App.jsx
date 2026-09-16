@@ -24,6 +24,7 @@ import useGeolocation from "./hooks/useGeolocation";
 import { getAddressByCep } from "./api/viaCep";
 import { getCoordinatesByAddress } from "./api/opencage";
 import { getRoute } from "./api/osrm";
+import { getRouteHazards } from "./api/overpass";
 import Header from "./components/Header";
 import CepForm from "./components/CepForm";
 import AddressDisplay from "./components/AddressDisplay";
@@ -91,10 +92,20 @@ function App() {
   const [toast, setToast] = useState(null); // { message, severity, undo }
 
   // Localizacao do usuario e rota ate o endereco ativo.
-  const { position: userLocation, locating, locate } = useGeolocation();
+  const { position: userLocation, locating, permission, locate } = useGeolocation();
   const [focusUser, setFocusUser] = useState(false);
+  // Convite para ativar a localizacao, mostrado no mapa ate o usuario decidir.
+  const [locationPromptDismissed, setLocationPromptDismissed] = useLocalStorage(
+    "geobusca:locationPromptDismissed",
+    false,
+  );
+  // Mostra tambem quando o navegador ja bloqueou, com a instrucao de como liberar.
+  const showLocationPrompt = !userLocation && !locationPromptDismissed && permission !== "granted";
   const [route, setRoute] = useState(null);
   const [routing, setRouting] = useState(false);
+  // Pedagios e radares ao longo da rota (consulta ao OpenStreetMap via Overpass).
+  const [hazards, setHazards] = useState(null); // { tolls, cameras } | { error: true }
+  const [hazardsLoading, setHazardsLoading] = useState(false);
   const [profile, setProfile] = useLocalStorage("geobusca:profile", "driving");
 
   const notify = useCallback((message, severity = "info", undo = null) => {
@@ -112,6 +123,7 @@ function App() {
     setIsFavoriteView(false);
     setSelectedId(null);
     setRoute(null);
+    setHazards(null);
   };
 
   // Botao "minha localizacao" do mapa: pede a permissao (se ainda nao tem)
@@ -119,7 +131,8 @@ function App() {
   const handleLocate = async () => {
     try {
       await locate();
-      setFocusUser(true);
+      setLocationPromptDismissed(true);
+      if (!route) setFocusUser(true);
       if (!coordinates) notify("Você está no mapa.", "success");
     } catch (err) {
       notify(err.message, "error");
@@ -135,11 +148,28 @@ function App() {
       const result = await getRoute(origin, destination, nextProfile);
       setRoute(result);
       setFocusUser(false);
+      loadHazards(result);
     } catch (err) {
       setRoute(null);
+      setHazards(null);
       notify(err.message || "Não foi possível calcular a rota.", "error");
     } finally {
       setRouting(false);
+    }
+  };
+
+  // Roda depois da rota, sem travar a tela: se o Overpass falhar, so avisa no painel.
+  const loadHazards = async (currentRoute) => {
+    setHazards(null);
+    setHazardsLoading(true);
+    try {
+      const result = await getRouteHazards(currentRoute.coordinates);
+      setHazards(result);
+    } catch (err) {
+      console.error("Falha ao consultar pedágios e radares", err);
+      setHazards({ error: true, tolls: [], cameras: [] });
+    } finally {
+      setHazardsLoading(false);
     }
   };
 
@@ -172,6 +202,7 @@ function App() {
     setAddress(null);
     setCoordinates(null);
     setRoute(null);
+    setHazards(null);
     setFocusUser(false);
 
     try {
@@ -245,6 +276,7 @@ function App() {
     setSelectedId(favorite.id);
     setCoordinates(favorite.coordinates || null);
     setRoute(null);
+    setHazards(null);
     setFocusUser(false);
   };
 
@@ -300,6 +332,7 @@ function App() {
                       route={route}
                       routing={routing}
                       onRoute={() => handleRoute()}
+                      hazards={hazards}
                     />
                   )}
 
@@ -325,10 +358,18 @@ function App() {
                     locating={locating}
                     focusUser={focusUser}
                     onLocate={handleLocate}
+                    showLocationPrompt={showLocationPrompt}
+                    locationDenied={permission === "denied"}
+                    onDismissLocationPrompt={() => setLocationPromptDismissed(true)}
                     route={route}
                     routing={routing}
                     onChangeProfile={handleChangeProfile}
-                    onClearRoute={() => setRoute(null)}
+                    onClearRoute={() => {
+                      setRoute(null);
+                      setHazards(null);
+                    }}
+                    hazards={hazards}
+                    hazardsLoading={hazardsLoading}
                   />
                 </StickyColumn>
               </Grid>

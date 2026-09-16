@@ -10,6 +10,8 @@ export default function useGeolocation() {
   const [position, setPosition] = useState(null);
   const [locating, setLocating] = useState(false);
   const [error, setError] = useState(null);
+  // "granted" | "prompt" | "denied" | "unknown"
+  const [permission, setPermission] = useState("unknown");
 
   const locate = useCallback(
     () =>
@@ -30,10 +32,12 @@ export default function useGeolocation() {
               accuracy: pos.coords.accuracy,
             };
             setPosition(next);
+            setPermission("granted");
             setLocating(false);
             resolve(next);
           },
           (geoError) => {
+            if (geoError.code === geoError.PERMISSION_DENIED) setPermission("denied");
             const message =
               geoError.code === geoError.PERMISSION_DENIED
                 ? "Permissão de localização negada. Libere no ícone de cadeado do navegador."
@@ -54,13 +58,17 @@ export default function useGeolocation() {
     navigator.permissions
       .query({ name: "geolocation" })
       .then((status) => {
-        if (!cancelled && status.state === "granted") locate().catch(() => {});
+        if (cancelled) return;
+        setPermission(status.state);
+        if (status.state === "granted") locate().catch(() => {});
+        // Acompanha se o usuario mudar a permissao pelo cadeado do navegador.
+        status.onchange = () => setPermission(status.state);
       })
-      .catch(() => {});
+      .catch(() => setPermission("prompt"));
     return () => {
       cancelled = true;
     };
   }, [locate]);
 
-  return { position, locating, error, locate };
+  return { position, locating, error, permission, locate };
 }

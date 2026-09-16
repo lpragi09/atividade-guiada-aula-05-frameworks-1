@@ -33,10 +33,23 @@ import {
   Close,
   Schedule,
   Directions,
+  Navigation,
+  Paid,
+  PhotoCamera,
+  Verified,
+  WarningAmber,
 } from "@mui/icons-material";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { colorForUf, formatCep, formatDistance, formatDuration } from "../utils/geo";
+import {
+  colorForUf,
+  formatCep,
+  formatDistance,
+  formatDuration,
+  googleMapsRouteUrl,
+  formatBRL,
+} from "../utils/geo";
+import { summarizeTolls } from "../api/overpass";
 
 // Centro do Brasil: e o que aparece enquanto nenhum endereco foi buscado.
 const BRAZIL_CENTER = [-14.235, -51.925];
@@ -74,6 +87,25 @@ const makeIcon = (color, variant = "default") =>
     iconAnchor: [12, 24],
     popupAnchor: [0, -26],
   });
+
+// Icones de pedagio e radar (paths do Material Icons "attach_money" e "photo_camera").
+const MONEY_PATH =
+  "M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z";
+const CAMERA_PATH =
+  "M12 12m-3.2 0a3.2 3.2 0 1 0 6.4 0a3.2 3.2 0 1 0-6.4 0M9 2 7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z";
+
+const badgeIcon = (kind) =>
+  L.divIcon({
+    className: "geo-marker-wrap",
+    html: `<span class="geo-badge is-${kind}"><svg viewBox="0 0 24 24"><path d="${
+      kind === "toll" ? MONEY_PATH : CAMERA_PATH
+    }"/></svg></span>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+    popupAnchor: [0, -14],
+  });
+const tollIcon = badgeIcon("toll");
+const cameraIcon = badgeIcon("camera");
 
 const userIcon = L.divIcon({
   className: "geo-marker-wrap",
@@ -137,13 +169,19 @@ const MapView = ({
   locating,
   focusUser,
   onLocate,
+  showLocationPrompt,
+  locationDenied,
+  onDismissLocationPrompt,
   route,
   routing,
   onChangeProfile,
   onClearRoute,
+  hazards,
+  hazardsLoading,
 }) => {
   const tiles = TILES[mode] || TILES.light;
   const isDark = mode === "dark";
+  const tollSummary = summarizeTolls(hazards?.tolls);
 
   const favoriteMarkers = useMemo(
     () =>
@@ -154,7 +192,7 @@ const MapView = ({
   );
 
   const hasActive = Boolean(coordinates);
-  const isEmpty = !hasActive && favoriteMarkers.length === 0 && !userLocation;
+  const isEmpty = !hasActive && favoriteMarkers.length === 0 && !userLocation && !showLocationPrompt;
 
   return (
     <Paper
@@ -197,6 +235,38 @@ const MapView = ({
             />
           </>
         )}
+
+        {/* Pedagios e radares encontrados ao longo da rota */}
+        {route &&
+          hazards?.tolls?.map((toll) => (
+            <Marker key={`toll-${toll.id}`} position={[toll.lat, toll.lng]} icon={tollIcon} zIndexOffset={800}>
+              <Popup>
+                <strong>{toll.name}</strong>
+                {toll.operator && toll.operator !== toll.name && (
+                  <>
+                    <br />
+                    {toll.operator}
+                  </>
+                )}
+                <br />
+                {toll.charge !== null ? `Carro: ${formatBRL(toll.charge)}` : "Valor não cadastrado no OSM"}
+              </Popup>
+            </Marker>
+          ))}
+        {route &&
+          hazards?.cameras?.map((cam) => (
+            <Marker key={`cam-${cam.id}`} position={[cam.lat, cam.lng]} icon={cameraIcon} zIndexOffset={800}>
+              <Popup>
+                <strong>Radar</strong>
+                {cam.maxspeed && (
+                  <>
+                    <br />
+                    Limite: {cam.maxspeed} km/h
+                  </>
+                )}
+              </Popup>
+            </Marker>
+          ))}
 
         {/* Posicao do usuario + raio de precisao */}
         {userLocation && (
@@ -350,7 +420,79 @@ const MapView = ({
             )}
           </Stack>
 
+          {route && (
+            <Stack direction="row" sx={{ alignItems: "center", flexWrap: "wrap", gap: 0.75, width: "100%", order: 3 }}>
+              {hazardsLoading ? (
+                <>
+                  <CircularProgress size={14} />
+                  <Typography variant="caption" color="text.secondary">
+                    Verificando pedágios e radares no trajeto…
+                  </Typography>
+                </>
+              ) : hazards?.error ? (
+                <Chip
+                  icon={<WarningAmber />}
+                  size="small"
+                  variant="outlined"
+                  label="Não foi possível verificar pedágios e radares"
+                />
+              ) : hazards ? (
+                <>
+                  {tollSummary.count > 0 ? (
+                    <Tooltip
+                      title={
+                        tollSummary.missingCount > 0
+                          ? `${tollSummary.missingCount} ${tollSummary.missingCount === 1 ? "pedágio sem valor cadastrado" : "pedágios sem valor cadastrado"} no OpenStreetMap`
+                          : "Valores para carro de passeio, conforme o OpenStreetMap"
+                      }
+                    >
+                      <Chip
+                        icon={<Paid />}
+                        size="small"
+                        color="warning"
+                        label={`${tollSummary.count} ${tollSummary.count === 1 ? "pedágio" : "pedágios"}${
+                          tollSummary.knownCount > 0
+                            ? ` · ${tollSummary.missingCount > 0 ? "a partir de " : ""}${formatBRL(tollSummary.total)}`
+                            : " · valor não informado"
+                        }`}
+                      />
+                    </Tooltip>
+                  ) : (
+                    <Chip icon={<Verified />} size="small" variant="outlined" label="Sem pedágios" />
+                  )}
+                  {hazards.cameras.length > 0 ? (
+                    <Chip
+                      icon={<PhotoCamera />}
+                      size="small"
+                      color="error"
+                      label={`${hazards.cameras.length} ${hazards.cameras.length === 1 ? "radar" : "radares"}`}
+                    />
+                  ) : (
+                    <Chip icon={<Verified />} size="small" variant="outlined" label="Sem radares" />
+                  )}
+                </>
+              ) : null}
+            </Stack>
+          )}
+
           <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+            {route && userLocation && coordinates && (
+              <Tooltip title="Navegar com o Google Maps">
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="success"
+                  component="a"
+                  href={googleMapsRouteUrl(userLocation, coordinates)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  startIcon={<Navigation fontSize="small" />}
+                  sx={{ py: 0.5, px: 1.25 }}
+                >
+                  Navegar
+                </Button>
+              </Tooltip>
+            )}
             <ToggleButtonGroup
               size="small"
               exclusive
@@ -371,6 +513,70 @@ const MapView = ({
             </Tooltip>
           </Stack>
         </Paper>
+      )}
+
+      {/* Convite para ativar a localizacao */}
+      {showLocationPrompt && (
+        <Box
+          sx={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 1001,
+            display: "grid",
+            placeItems: "center",
+            pointerEvents: "none",
+            px: 2,
+          }}
+        >
+          <Paper
+            sx={{
+              pointerEvents: "auto",
+              p: 2.5,
+              maxWidth: 340,
+              textAlign: "center",
+              boxShadow: 8,
+              borderRadius: 3,
+            }}
+          >
+            <Box
+              sx={{
+                width: 56,
+                height: 56,
+                mx: "auto",
+                mb: 1.5,
+                borderRadius: "50%",
+                display: "grid",
+                placeItems: "center",
+                color: "success.main",
+                bgcolor: (t) => (t.palette.mode === "dark" ? "rgba(74,222,128,0.12)" : "rgba(47,158,68,0.1)"),
+              }}
+            >
+              <MyLocation />
+            </Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+              {locationDenied ? "Localização bloqueada" : "Mostrar você no mapa?"}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
+              {locationDenied
+                ? "O navegador está bloqueando a localização deste site. Clique no ícone de cadeado ao lado do endereço, permita a localização e tente de novo."
+                : "Com a localização ativa, você aparece no mapa desde o início e dá para traçar a rota até qualquer endereço. Sua posição fica só no seu navegador."}
+            </Typography>
+            <Stack direction="row" spacing={1} sx={{ justifyContent: "center" }}>
+              <Button variant="text" color="inherit" onClick={onDismissLocationPrompt}>
+                Agora não
+              </Button>
+              <Button
+                variant="contained"
+                color="success"
+                onClick={onLocate}
+                disabled={locating}
+                startIcon={locating ? <CircularProgress size={16} color="inherit" /> : <MyLocation />}
+              >
+                {locating ? "Localizando" : locationDenied ? "Tentar de novo" : "Ativar localização"}
+              </Button>
+            </Stack>
+          </Paper>
+        </Box>
       )}
 
       {/* Estado vazio por cima do mapa do Brasil */}

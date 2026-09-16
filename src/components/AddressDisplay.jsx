@@ -27,18 +27,22 @@ import {
   Star,
   Tag,
   Schedule,
+  Share,
+  Paid,
+  PhotoCamera,
 } from "@mui/icons-material";
 import {
   formatAddress,
   formatCep,
   googleMapsUrl,
-  googleMapsRouteUrl,
   distanceKm,
   formatDistance,
   formatDuration,
+  formatBRL,
   colorForUf,
 } from "../utils/geo";
 import { ROUTE_PROFILES } from "../api/osrm";
+import { summarizeTolls } from "../api/overpass";
 
 const Accent = styled.div`
   position: absolute;
@@ -73,11 +77,30 @@ const AddressDisplay = ({
   route,
   routing,
   onRoute,
+  hazards,
 }) => {
   const accent = colorForUf(address.uf);
+  const tollSummary = summarizeTolls(hazards?.tolls);
 
   // Distancia em linha reta, mostrada enquanto nao existe rota calculada.
   const straightLine = userLocation && coordinates ? distanceKm(userLocation, coordinates) : null;
+
+  // Compartilha pelo menu nativo do celular; no desktop copia o link do Google Maps.
+  const handleShare = async () => {
+    const text = formatAddress(address);
+    const url = googleMapsUrl(coordinates, address);
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: address.apelido || address.logradouro || "Endereço", text, url });
+      } else {
+        await navigator.clipboard.writeText(`${text}
+${url}`);
+        onNotify?.("Endereço e link copiados para compartilhar.", "success");
+      }
+    } catch (err) {
+      if (err?.name !== "AbortError") onNotify?.("Não foi possível compartilhar.", "error");
+    }
+  };
 
   const handleCopy = async () => {
     try {
@@ -207,6 +230,27 @@ const AddressDisplay = ({
                     color="success"
                     variant="outlined"
                   />
+                  {tollSummary.count > 0 && (
+                    <Chip
+                      icon={<Paid />}
+                      size="small"
+                      color="warning"
+                      label={
+                        tollSummary.knownCount > 0
+                          ? `${tollSummary.missingCount > 0 ? "≥ " : ""}${formatBRL(tollSummary.total)} de pedágio`
+                          : `${tollSummary.count} ${tollSummary.count === 1 ? "pedágio" : "pedágios"}`
+                      }
+                    />
+                  )}
+                  {hazards?.cameras?.length > 0 && (
+                    <Chip
+                      icon={<PhotoCamera />}
+                      size="small"
+                      color="error"
+                      variant="outlined"
+                      label={`${hazards.cameras.length} ${hazards.cameras.length === 1 ? "radar" : "radares"}`}
+                    />
+                  )}
                 </>
               ) : (
                 straightLine !== null && (
@@ -227,32 +271,23 @@ const AddressDisplay = ({
                   <ContentCopy fontSize="small" />
                 </IconButton>
               </Tooltip>
-              <Tooltip title="Abrir no Google Maps">
+              <Tooltip title="Ver no Google Maps">
                 <IconButton
                   size="small"
                   component="a"
                   href={googleMapsUrl(coordinates, address)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  aria-label="Abrir no Google Maps"
+                  aria-label="Ver no Google Maps"
                 >
                   <MapIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
-              {coordinates && userLocation && (
-                <Tooltip title="Abrir rota no Google Maps">
-                  <IconButton
-                    size="small"
-                    component="a"
-                    href={googleMapsRouteUrl(userLocation, coordinates)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label="Abrir rota no Google Maps"
-                  >
-                    <NearMe fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              )}
+              <Tooltip title="Compartilhar">
+                <IconButton size="small" onClick={handleShare} aria-label="Compartilhar endereço">
+                  <Share fontSize="small" />
+                </IconButton>
+              </Tooltip>
               {coordinates && (
                 <Tooltip title={route ? "Recalcular rota" : "Rota até aqui a partir da minha localização"}>
                   <span>
