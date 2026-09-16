@@ -20,8 +20,10 @@ import {
 import { getTheme } from "./theme";
 import GlobalStyles from "./GlobalStyles";
 import useLocalStorage from "./hooks/useLocalStorage";
+import useGeolocation from "./hooks/useGeolocation";
 import { getAddressByCep } from "./api/viaCep";
 import { getCoordinatesByAddress } from "./api/opencage";
+import { getRoute } from "./api/osrm";
 import Header from "./components/Header";
 import CepForm from "./components/CepForm";
 import AddressDisplay from "./components/AddressDisplay";
@@ -53,11 +55,12 @@ const Panel = styled(Paper)`
   }
 `;
 
-// A coluna do mapa acompanha a rolagem no desktop.
+// A coluna do mapa acompanha a rolagem no desktop. Os 160px descontam o header,
+// para o mapa inteiro (com o painel da rota) caber na tela sem rolar.
 const StickyColumn = styled.div`
   position: sticky;
   top: 1.5rem;
-  height: calc(100vh - 3rem);
+  height: calc(100vh - 160px);
   min-height: 420px;
 
   @media (max-width: 900px) {
@@ -87,6 +90,13 @@ function App() {
 
   const [toast, setToast] = useState(null); // { message, severity, undo }
 
+  // Localizacao do usuario e rota ate o endereco ativo.
+  const { position: userLocation, locating, locate } = useGeolocation();
+  const [focusUser, setFocusUser] = useState(false);
+  const [route, setRoute] = useState(null);
+  const [routing, setRouting] = useState(false);
+  const [profile, setProfile] = useLocalStorage("geobusca:profile", "driving");
+
   const notify = useCallback((message, severity = "info", undo = null) => {
     setToast({ message, severity, undo, key: Date.now() });
   }, []);
@@ -101,6 +111,41 @@ function App() {
     setCoordinates(null);
     setIsFavoriteView(false);
     setSelectedId(null);
+    setRoute(null);
+  };
+
+  // Botao "minha localizacao" do mapa: pede a permissao (se ainda nao tem)
+  // e centraliza o mapa no usuario.
+  const handleLocate = async () => {
+    try {
+      await locate();
+      setFocusUser(true);
+      if (!coordinates) notify("Você está no mapa.", "success");
+    } catch (err) {
+      notify(err.message, "error");
+    }
+  };
+
+  // Calcula a rota da posicao do usuario ate o endereco ativo.
+  const handleRoute = async (nextProfile = profile, destination = coordinates) => {
+    if (!destination) return;
+    setRouting(true);
+    try {
+      const origin = userLocation || (await locate());
+      const result = await getRoute(origin, destination, nextProfile);
+      setRoute(result);
+      setFocusUser(false);
+    } catch (err) {
+      setRoute(null);
+      notify(err.message || "Não foi possível calcular a rota.", "error");
+    } finally {
+      setRouting(false);
+    }
+  };
+
+  const handleChangeProfile = (nextProfile) => {
+    setProfile(nextProfile);
+    handleRoute(nextProfile);
   };
 
   // No celular o mapa fica abaixo da lista, entao rola ate ele quando um ponto e exibido.
@@ -126,6 +171,8 @@ function App() {
     setError("");
     setAddress(null);
     setCoordinates(null);
+    setRoute(null);
+    setFocusUser(false);
 
     try {
       const addressData = await getAddressByCep(cep);
@@ -197,6 +244,8 @@ function App() {
     setIsFavoriteView(true);
     setSelectedId(favorite.id);
     setCoordinates(favorite.coordinates || null);
+    setRoute(null);
+    setFocusUser(false);
   };
 
   const toggleMode = () => setMode((prev) => (prev === "dark" ? "light" : "dark"));
@@ -247,6 +296,10 @@ function App() {
                       onSave={() => handleAddFavorite(address, coordinates)}
                       onClose={handleCloseDisplay}
                       onNotify={notify}
+                      userLocation={userLocation}
+                      route={route}
+                      routing={routing}
+                      onRoute={() => handleRoute()}
                     />
                   )}
 
@@ -268,6 +321,14 @@ function App() {
                     favorites={favorites}
                     onSelectFavorite={handleSelectFavorite}
                     mode={mode}
+                    userLocation={userLocation}
+                    locating={locating}
+                    focusUser={focusUser}
+                    onLocate={handleLocate}
+                    route={route}
+                    routing={routing}
+                    onChangeProfile={handleChangeProfile}
+                    onClearRoute={() => setRoute(null)}
                   />
                 </StickyColumn>
               </Grid>
@@ -291,7 +352,7 @@ function App() {
                 {" · "}
                 <Link href="https://www.openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</Link>
                 {" · "}
-                <Link href="https://carto.com" target="_blank" rel="noopener">CARTO</Link>
+                <Link href="https://project-osrm.org" target="_blank" rel="noopener">OSRM</Link>
               </Typography>
               <Typography variant="caption">
                 Atalhos: <kbd>/</kbd> foca a busca · <kbd>Esc</kbd> fecha o endereço

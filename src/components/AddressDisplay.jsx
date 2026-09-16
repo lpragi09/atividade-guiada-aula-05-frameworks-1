@@ -1,5 +1,5 @@
 // src/components/AddressDisplay.jsx
-import React, { useState } from "react";
+import React from "react";
 import styled from "styled-components";
 import {
   Card,
@@ -14,6 +14,7 @@ import {
   Tooltip,
   Stack,
   Divider,
+  CircularProgress,
 } from "@mui/material";
 import {
   Save,
@@ -22,17 +23,22 @@ import {
   ContentCopy,
   Map as MapIcon,
   NearMe,
+  Directions,
   Star,
   Tag,
+  Schedule,
 } from "@mui/icons-material";
 import {
   formatAddress,
   formatCep,
   googleMapsUrl,
+  googleMapsRouteUrl,
   distanceKm,
   formatDistance,
+  formatDuration,
   colorForUf,
 } from "../utils/geo";
+import { ROUTE_PROFILES } from "../api/osrm";
 
 const Accent = styled.div`
   position: absolute;
@@ -56,11 +62,22 @@ const Field = ({ label, value }) => (
   </Box>
 );
 
-const AddressDisplay = ({ address, coordinates, isFavoriteView, onSave, onClose, onNotify }) => {
-  const [distance, setDistance] = useState(null);
-  const [locating, setLocating] = useState(false);
-
+const AddressDisplay = ({
+  address,
+  coordinates,
+  isFavoriteView,
+  onSave,
+  onClose,
+  onNotify,
+  userLocation,
+  route,
+  routing,
+  onRoute,
+}) => {
   const accent = colorForUf(address.uf);
+
+  // Distancia em linha reta, mostrada enquanto nao existe rota calculada.
+  const straightLine = userLocation && coordinates ? distanceKm(userLocation, coordinates) : null;
 
   const handleCopy = async () => {
     try {
@@ -69,28 +86,6 @@ const AddressDisplay = ({ address, coordinates, isFavoriteView, onSave, onClose,
     } catch {
       onNotify?.("Não foi possível copiar.", "error");
     }
-  };
-
-  // Usa a geolocalizacao do navegador para calcular a distancia ate o endereco.
-  const handleDistance = () => {
-    if (!coordinates) return;
-    if (!navigator.geolocation) {
-      onNotify?.("Seu navegador não suporta geolocalização.", "error");
-      return;
-    }
-    setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const me = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setDistance(distanceKm(me, coordinates));
-        setLocating(false);
-      },
-      () => {
-        onNotify?.("Não foi possível obter sua localização.", "error");
-        setLocating(false);
-      },
-      { enableHighAccuracy: false, timeout: 8000 },
-    );
   };
 
   return (
@@ -197,13 +192,32 @@ const AddressDisplay = ({ address, coordinates, isFavoriteView, onSave, onClose,
                   sx={{ fontFamily: "monospace" }}
                 />
               )}
-              {distance !== null && (
-                <Chip
-                  icon={<NearMe />}
-                  label={`${formatDistance(distance)} de você`}
-                  size="small"
-                  color="success"
-                />
+              {route ? (
+                <>
+                  <Chip
+                    icon={<Directions />}
+                    label={`${formatDistance(route.distance / 1000)} · ${ROUTE_PROFILES[route.profile]?.label}`}
+                    size="small"
+                    color="success"
+                  />
+                  <Chip
+                    icon={<Schedule />}
+                    label={formatDuration(route.duration)}
+                    size="small"
+                    color="success"
+                    variant="outlined"
+                  />
+                </>
+              ) : (
+                straightLine !== null && (
+                  <Chip
+                    icon={<NearMe />}
+                    label={`${formatDistance(straightLine)} em linha reta`}
+                    size="small"
+                    variant="outlined"
+                    color="success"
+                  />
+                )
               )}
             </Stack>
 
@@ -225,16 +239,37 @@ const AddressDisplay = ({ address, coordinates, isFavoriteView, onSave, onClose,
                   <MapIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
-              {coordinates && (
-                <Tooltip title="Distância até mim">
+              {coordinates && userLocation && (
+                <Tooltip title="Abrir rota no Google Maps">
                   <IconButton
                     size="small"
-                    onClick={handleDistance}
-                    disabled={locating}
-                    aria-label="Calcular distância até mim"
+                    component="a"
+                    href={googleMapsRouteUrl(userLocation, coordinates)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Abrir rota no Google Maps"
                   >
                     <NearMe fontSize="small" />
                   </IconButton>
+                </Tooltip>
+              )}
+              {coordinates && (
+                <Tooltip title={route ? "Recalcular rota" : "Rota até aqui a partir da minha localização"}>
+                  <span>
+                    <Button
+                      size="small"
+                      variant={route ? "outlined" : "contained"}
+                      color="success"
+                      onClick={() => onRoute?.()}
+                      disabled={routing}
+                      startIcon={
+                        routing ? <CircularProgress size={14} color="inherit" /> : <Directions />
+                      }
+                      sx={{ ml: 0.5, py: 0.5, px: 1.5 }}
+                    >
+                      {routing ? "Calculando" : route ? "Recalcular" : "Rota até aqui"}
+                    </Button>
+                  </span>
                 </Tooltip>
               )}
             </Stack>
